@@ -216,3 +216,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# ============================================================
+# 6D Object Pose Estimation - Project Files
+# ============================================================
+
+# Datasets
+data/
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Training and experiment outputs
+runs/
+outputs/
+checkpoints/
+
+# TensorBoard logs
+logs/
+
+# Local configuration / secrets
+.env
+
+# OS-generated files
+.DS_Store
+Thumbs.db
