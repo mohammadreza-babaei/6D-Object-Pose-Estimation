@@ -1,0 +1,56 @@
+\subsection{Object Detection Results}
+
+The YOLO detector was evaluated on the LineMOD object 1 validation split. The best recorded row in the saved YOLO results contains an mAP@50 of $0.99500$ and an mAP@50:95 of $0.89686$. These values are reported directly from the repository's saved detection results.
+
+\begin{table}[htbp]
+    \centering
+    \caption{YOLO object detection results for LineMOD object 1.}
+    \label{tab:yolo-results}
+    \begin{tabular}{lc}
+        \hline
+        Metric & Value \\
+        \hline
+        mAP@50 & 0.99500 \\
+        mAP@50:95 & 0.89686 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsection{Pose Estimation Comparison}
+
+The pose estimators were evaluated on the LineMOD object 1 test split using the ADD metric in millimetres. The RGB-only model obtained an ADD of $589.5225\,\mathrm{mm}$, while the RGB--D model obtained an ADD of $138.2051\,\mathrm{mm}$. Because lower ADD indicates a smaller average distance between the transformed model points, the RGB--D result was lower for this experiment.
+
+The percentage change was calculated from the saved ADD values as
+\[
+\frac{589.5225 - 138.2051}{589.5225} \times 100 = 76.5564\%.
+\]
+Thus, the RGB--D experiment produced a verified $76.5564\%$ reduction in ADD relative to the RGB-only experiment on this test split. This observation applies to the reported object 1 experiment and does not establish that RGB--D input is universally superior in other datasets, objects, or experimental settings.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Comparison of RGB-only and RGB--D pose estimation on the LineMOD object 1 test split.}
+    \label{tab:pose-results}
+    \begin{tabular}{lcc}
+        \hline
+        Metric & RGB & RGB--D \\
+        \hline
+        ADD (mm) & 589.5225 & 138.2051 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.78\textwidth]{outputs/rgb_vs_rgbd_add.png}
+    \caption{ADD comparison between the RGB-only and RGB--D pose estimators.}
+    \label{fig:rgb-rgbd-add}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{outputs/pose_prediction_examples.png}
+    \caption{Qualitative pose prediction examples for LineMOD object 1 test samples. The figure reports the ground-truth translation, RGB and RGB--D predicted translations, translation errors, and quaternion angular errors.}
+    \label{fig:pose-prediction-examples}
+\end{figure}
+
+Overall, the saved results show substantially lower ADD for the RGB--D model than for the RGB-only model in this experiment. The qualitative examples provide sample-level context for the reported predictions and errors, while the numerical ADD values provide the aggregate comparison. The conclusions are limited to the evaluated LineMOD object 1 test split and the trained checkpoints represented by the saved repository outputs.

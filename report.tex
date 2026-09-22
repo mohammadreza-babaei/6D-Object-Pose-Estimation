@@ -1,0 +1,265 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\title{Enhancing 6D Object Pose Estimation}
+\author{TODO: Add author name and university details}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report investigates 6D object pose estimation for a LineMOD object using
+an RGB-only model and a simple RGB--D feature-fusion model. The implemented
+pipeline first uses YOLO for object localization and then predicts object
+translation and rotation represented by a quaternion. The RGB--D model combines
+features from an RGB ResNet-50 branch and a lightweight depth branch. The saved
+experiments report object detection performance using mAP and pose performance
+using the ADD metric. The experimental comparison is limited to the trained
+checkpoints and LineMOD object 1 test split available in this repository.
+\end{abstract}
+
+\section{Introduction}
+
+Six-degree-of-freedom (6D) object pose estimation seeks to estimate an
+object's three-dimensional translation and orientation relative to a camera.
+This information is useful for applications such as robotic manipulation,
+augmented reality, and vision-based inspection. The task is more demanding
+than two-dimensional detection because the output must describe the object's
+position and orientation in three dimensions.
+
+This project studies a modular pipeline for 6D pose estimation using the
+LineMOD dataset. The implemented pipeline combines object detection with pose
+regression. It also compares an RGB-only estimator with an RGB--D extension
+that uses aligned depth information. The goal is to evaluate whether the
+additional depth branch improves the observed pose accuracy for the experiment
+stored in the repository.
+
+The contributions represented by the current implementation are:
+\begin{itemize}
+    \item a LineMOD data-loading and preprocessing pipeline for RGB, depth, and
+    pose annotations;
+    \item YOLO-based object localization using LineMOD bounding-box labels;
+    \item RGB pose regression with an ImageNet-initialized ResNet-50 backbone;
+    \item a compact RGB--D feature-fusion model; and
+    \item quantitative comparison using object detection metrics and the ADD
+    pose metric.
+\end{itemize}
+
+\section{Related Work}
+
+Object detection and 6D pose estimation are commonly treated as related but
+separate stages. A detector provides an image region in which a pose estimator
+can regress the object's translation and orientation. RGB--D methods extend
+this setting by using depth to provide geometric information that is not
+explicitly available in RGB intensity values.
+
+The present project is inspired by this general RGB--D fusion approach, but it
+implements a deliberately compact architecture suitable for a university
+project rather than a full reproduction of a large pose-estimation system.
+
+% TODO: Add verified scholarly references and a literature comparison. No
+% citations are included here because they are not stored in the repository.
+
+\section{Dataset and Data Preparation}
+
+The project uses the preprocessed LineMOD dataset. The repository contains
+RGB images, 16-bit depth images, object bounding boxes, ground-truth camera-to-
+object rotations and translations, camera intrinsics, object masks, and PLY
+models. The current saved experiment uses object 1.
+
+For object 1, the repository's split files contain 186 training samples and
+1050 test samples. The reported pose experiments focus on these object-1
+splits.
+
+The dataset loader reads the object-specific train and test split files and
+selects the annotation corresponding to the configured object identifier. The
+RGB and depth images are cropped using the same ground-truth object bounding
+box and resized to $224\times224$ pixels. RGB inputs are converted to tensors
+and normalized using ImageNet channel statistics. Depth is resized with nearest
+neighbour interpolation and converted to metres for neural-network input.
+Ground-truth translations and PLY model coordinates remain in millimetres,
+which is also the unit used when reporting ADD.
+
+The pose annotations provide a $3\times3$ rotation matrix and a three-
+dimensional translation vector. The implemented geometry utility converts the
+rotation matrix to a quaternion in $[w,x,y,z]$ order. The models normalize
+predicted quaternions before returning them.
+
+\section{Methodology}
+
+\subsection{Object Detection}
+
+The detection stage uses the pretrained YOLO11n checkpoint stored by the
+repository and is fine-tuned on a YOLO-format version of the LineMOD object
+bounding-box annotations. The dataset preparation script converts each
+bounding box from $[x,y,w,h]$ image coordinates to the normalized YOLO
+representation. Training is configured for 20 epochs with batch size 8 and an
+input image size of 640 pixels. The saved YOLO configuration records random
+seed 0. Detection performance is evaluated using mAP@50 and mAP@50:95; the
+result values are reported in Section~\ref{sec:experimental-results}.
+
+The repository also contains an end-to-end inference path in
+\texttt{run\_pose\_pipeline.py}. In that path, YOLO first localizes the object
+and the resulting crop is passed to either the RGB or RGB--D pose model.
+
+\subsection{RGB Pose Estimation}
+
+The RGB pose estimator in \texttt{src/pose\_model.py} uses a ResNet-50
+initialized with ImageNet pretrained weights. Its classification layer is
+replaced by an identity mapping, leaving the backbone feature vector as the
+input to two linear regression heads. The translation head predicts
+$(x,y,z)$, and the rotation head predicts a four-dimensional quaternion in
+$[w,x,y,z]$ order. The predicted quaternion is normalized to unit length.
+
+Training is configured for 20 epochs with batch size 4 using the Adam
+optimizer and learning rate $10^{-4}$. Twenty percent of the original
+training split is used as a validation subset, with random split seed 42.
+Checkpoint selection is based on validation ADD, after which the selected
+checkpoint is evaluated on the untouched test split.
+
+\subsection{RGB--D Pose Estimation and Fusion}
+
+The RGB--D model in \texttt{src/rgbd\_pose\_model.py} contains two input
+branches. The RGB branch is a ResNet-50 initialized with ImageNet weights; its
+final classification layer is removed and the resulting 2048-dimensional
+feature vector is used for fusion. The depth branch is a lightweight CNN with
+convolutional channel dimensions $1\rightarrow32\rightarrow64\rightarrow128$.
+Each convolution uses stride 2 and is followed by a ReLU and batch-normalization
+layer. Adaptive average pooling produces a 128-dimensional depth feature.
+
+The 2048-dimensional RGB feature and 128-dimensional depth feature are
+concatenated. The fusion module maps the resulting 2176-dimensional vector to
+512 dimensions, applies ReLU and dropout with probability 0.3, and then maps
+it to 256 dimensions with another ReLU. Separate linear heads predict the
+three-dimensional translation and the four-dimensional quaternion rotation;
+the quaternion is normalized to unit length.
+
+Training is configured for 20 epochs with batch size 4 and learning rate
+$10^{-4}$. The validation fraction is 0.2 and the random split seed is 42.
+Checkpoint selection is based on validation ADD, followed by final evaluation
+on the untouched test split.
+
+This design is a compact RGB--D fusion implementation for the project and does
+not claim to reproduce the complete architecture or training procedure of any
+particular external RGB--D pose-estimation system.
+
+\subsection{Loss Function and ADD Evaluation Metric}
+
+The training loss combines translation mean squared error with a quaternion
+rotation loss. Since $q$ and $-q$ represent the same rotation, the rotation
+term uses the absolute quaternion dot product:
+\begin{equation}
+    \mathcal{L}_{\mathrm{rot}}
+    = 1 - \left|q_{\mathrm{pred}}^{\mathsf{T}}q_{\mathrm{target}}\right|.
+\end{equation}
+The total loss is the weighted sum of the translation and rotation terms. The
+training scripts instantiate the loss with its default weights, so both the
+translation and rotation terms have weight 1.0:
+\begin{equation}
+    \mathcal{L}_{\mathrm{total}}
+    = \mathcal{L}_{\mathrm{trans}} + \mathcal{L}_{\mathrm{rot}}.
+\end{equation}
+
+For evaluation, ADD transforms the object's 3D model points using the predicted
+and ground-truth poses and computes the mean Euclidean distance between the two
+sets of transformed points:
+\begin{equation}
+    \mathrm{ADD}
+    = \frac{1}{N}\sum_{i=1}^{N}
+    \left\|\left(x_iR_{p}^{\mathsf{T}}+t_{p}\right)
+    -\left(x_iR_{g}^{\mathsf{T}}+t_{g}\right)\right\|_2.
+\end{equation}
+The repository stores the model points and translations in millimetres, so the
+reported ADD values are also in millimetres.
+
+The project uses the preprocessed LineMOD dataset. The reported pose
+experiments focus on object 1, which contains 186 training samples and 1050
+test samples. The dataset provides RGB images, depth images, masks, object
+bounding boxes, camera information, 6D pose annotations, and PLY object models
+for the available objects.
+
+For pose training and quantitative pose evaluation, the RGB and RGB--D dataset
+loaders use the ground-truth object bounding boxes to create the input crops.
+The pose-network inputs are resized to $224\times224$ pixels. RGB inputs use
+ImageNet normalization, while depth is resized using the repository's
+nearest-neighbour preprocessing and converted to metres for network input.
+Translation targets, object-model coordinates, pose errors, and ADD results
+remain expressed in millimetres.
+
+The saved experimental comparison concerns LineMOD object 1. Pose results are
+reported on the untouched test split, while the saved YOLO detection result is
+reported for the detector validation output. Checkpoints are loaded from the
+repository's \texttt{checkpoints} directory, and final metrics are read from
+the machine-readable files in \texttt{outputs} and the saved YOLO run results.
+
+The reported RGB versus RGB--D ADD values were computed using ground-truth
+object crops from the dataset loaders. They were not computed from YOLO-
+detected crops. Separately, \texttt{run\_pose\_pipeline.py} demonstrates an
+end-to-end inference path in which YOLO localization is followed by pose
+estimation; detector-crop ADD was not used for the reported quantitative
+comparison.
+
+The final results section uses only values that are already stored in the
+repository. No additional training or evaluation is performed by this report
+source file.
+
+\section{Experimental Results}\label{sec:experimental-results}
+
+\input{report_results}
+
+\section{Discussion}
+
+The saved experiment shows a lower ADD value for the RGB--D model than for the
+RGB-only model on the evaluated LineMOD object 1 test split. The detection
+results also show high recorded YOLO mAP values for the saved validation
+output. Together, these results indicate that the implemented detector and
+pose-estimation pipeline produced useful performance for this specific
+experiment.
+
+The comparison should be interpreted within its stated scope. It concerns one
+LineMOD object, the available trained checkpoints, and the recorded evaluation
+splits. It does not establish that RGB--D input is universally better than RGB
+input, nor does it replace a broader comparison across objects, runs, datasets,
+or controlled ablation settings.
+
+% TODO: Add an error analysis based on additional verified outputs, such as
+% failure cases, depth-quality analysis, or per-sample statistics.
+
+\section{Conclusion and Future Work}
+
+This project implements a complete experimental pipeline from LineMOD data
+preparation and YOLO localization to RGB and RGB--D 6D pose estimation. The
+models predict translation and quaternion rotation, and the evaluation code
+reports ADD using the object's 3D model. The saved object 1 experiment provides
+both quantitative and qualitative evidence for comparing RGB-only and RGB--D
+pose prediction.
+
+Future work should include broader evaluation across the available LineMOD
+objects, repeated runs with controlled random seeds, and additional analysis of
+failure cases. Other possible extensions include improved depth handling,
+stronger augmentation, and a more systematic ablation of the RGB--D fusion
+components.
+
+% TODO: Replace future-work suggestions with the final experimentally justified
+% scope of the project.
+
+\section*{References}
+\addcontentsline{toc}{section}{References}
+
+% TODO: Add the verified bibliographic entries required by the final report.
+% No citations are included until their sources and bibliographic details have
+% been confirmed.
+
+\end{document}
