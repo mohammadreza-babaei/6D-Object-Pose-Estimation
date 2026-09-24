@@ -17,6 +17,7 @@ from src.rgbd_training import (
     evaluate_rgbd,
     train_rgbd_one_epoch,
 )
+from src.training_history import plot_training_history, save_training_history
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,12 +87,26 @@ def main() -> None:
     )
 
     best_add = float("inf")
+    history = []
     for epoch in range(args.epochs):
         train_metrics = train_rgbd_one_epoch(
             model, train_loader, criterion, optimizer
         )
         validation_metrics = evaluate_rgbd(
             model, validation_loader, criterion, model_points
+        )
+
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": train_metrics["loss"],
+                "validation_loss": validation_metrics["loss"],
+                "train_translation_loss": train_metrics["translation_loss"],
+                "train_rotation_loss": train_metrics["rotation_loss"],
+                "validation_translation_loss": validation_metrics["translation_loss"],
+                "validation_rotation_loss": validation_metrics["rotation_loss"],
+                "validation_add": validation_metrics["add"],
+            }
         )
 
         print(
@@ -126,6 +141,66 @@ def main() -> None:
         "test_metrics": test_metrics,
     }
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    save_training_history(
+        history,
+        OUTPUT_ROOT / "rgbd_training_history.csv",
+    )
+    plot_training_history(
+        history,
+        OUTPUT_ROOT / "figures",
+        "rgbd_training",
+    )
+    (OUTPUT_ROOT / "rgbd_experiment_metadata.json").write_text(
+        json.dumps(
+            {
+                "experiment": "RGB-D pose estimation",
+                "object_id": args.object_id,
+                "randomness": {
+                    "split_seed": args.seed,
+                    "global_torch_seed": None,
+                    "cuda_seed": None,
+                    "note": "Only the train/validation split is seeded; model initialization and shuffled DataLoader batches are not explicitly seeded.",
+                },
+                "training": {
+                    "epochs": args.epochs,
+                    "batch_size": args.batch_size,
+                    "learning_rate": args.learning_rate,
+                    "optimizer": "Adam",
+                    "device": str(next(model.parameters()).device),
+                    "num_workers": args.num_workers,
+                },
+                "dataset": {
+                    "train_samples": training_size,
+                    "validation_samples": validation_size,
+                    "test_samples": len(test_dataset),
+                    "original_train_samples": len(full_train_dataset),
+                    "validation_fraction": args.validation_fraction,
+                    "split": "random_split on the original train split; untouched test split",
+                },
+                "model": {
+                    "backbone": "ResNet-50 RGB branch plus lightweight depth CNN (1->32->64->128)",
+                    "pretrained_weights": "torchvision ResNet50_Weights.IMAGENET1K_V2 for RGB branch; depth branch randomly initialized",
+                    "input_size": {
+                        "rgb": [224, 224],
+                        "depth": [224, 224],
+                    },
+                    "input_modality": "RGB-D",
+                    "rotation_representation": "quaternion [w, x, y, z]",
+                },
+                "loss": {
+                    "translation": "mean squared error",
+                    "rotation": "1 - abs(dot(predicted_quaternion, target_quaternion))",
+                    "translation_weight": criterion.translation_weight,
+                    "rotation_weight": criterion.rotation_weight,
+                },
+                "checkpoint_selection": {
+                    "criterion": "lowest validation ADD",
+                    "checkpoint": str(args.checkpoint),
+                },
+            },
+            indent=2,
+        )
+    )
     result_path = OUTPUT_ROOT / "rgbd_test_metrics.json"
     result_path.write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))

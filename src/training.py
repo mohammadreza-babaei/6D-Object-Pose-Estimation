@@ -22,10 +22,10 @@ def create_training_components(learning_rate=1e-4):
 
     return model, criterion, optimizer
 def train_one_epoch(model, dataloader, criterion, optimizer):
-    """Train the pose estimator for one epoch."""
+    """Train the pose estimator for one epoch and return sample-weighted losses."""
 
     model.train()
-    total_loss = 0.0
+    totals = {"loss": 0.0, "translation_loss": 0.0, "rotation_loss": 0.0}
     total_samples = 0
 
     for images, target_translation, target_rotation in dataloader:
@@ -37,7 +37,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer):
 
         pred_translation, pred_rotation = model(images)
 
-        loss, _, _ = criterion(
+        loss, translation_loss, rotation_loss = criterion(
             pred_translation,
             pred_rotation,
             target_translation,
@@ -48,13 +48,18 @@ def train_one_epoch(model, dataloader, criterion, optimizer):
         optimizer.step()
 
         batch_size = images.size(0)
-        total_loss += loss.item() * batch_size
+        totals["loss"] += loss.item() * batch_size
+        totals["translation_loss"] += translation_loss.item() * batch_size
+        totals["rotation_loss"] += rotation_loss.item() * batch_size
         total_samples += batch_size
 
     if total_samples == 0:
         raise ValueError("Cannot train on an empty dataloader.")
 
-    return total_loss / total_samples
+    return {
+        name: value / total_samples
+        for name, value in totals.items()
+    }
 def evaluate(model, dataloader, criterion, model_points=None):
     """Evaluate pose loss and optionally compute mean ADD."""
 
